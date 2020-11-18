@@ -4,21 +4,32 @@ import contextlib
 
 import jsondb.exceptions
 import jsondb.utils.decorators as deco
-import jsondb.utils.filter.filter as filter_data
+from jsondb.utils.filter import _filter as filter_data
 
 class Connection:
     def __init__(self, filepath: str, **kwargs):
         """Makes a Connection object. `.json` file extension is not needed to be added, the program does it for you."""
         self.__fp = filepath + ".json"
 
-        self.__closed = False
+        self._closed = False
 
-        with open(self.__fp, "r") as f:
-            self._data = json.load(f)
+        try:
+            # Try opening file. If it exists, load it's data.
+            with open(self.__fp, "r") as f:
+                self._data = json.load(f)
+        except Exception as e:
+            # If file not found, create it by opening it in write mode.
+            if isinstance(e, FileNotFoundError):
+                with open(self.__fp, "w") as f:
+                    pass
+                self._data = []
+            # If there's no data in the file, set data attribute to empty list.
+            elif isinstance(e, json.decoder.JSONDecodeError):
+                self._data = []
 
         with contextlib.suppress(KeyError):
-            self._id_start = kwargs['id']
-
+            # parsing through kwargs
+            self.__indent = kwargs['indent'] 
 
     def __enter__(self):
         return self
@@ -32,9 +43,11 @@ class Connection:
         if _filter == {}:
             return tuple(self._data)
         else:
-            with contextlib.suppress(KeyError):
+            try:
                 inverse = kwargs['inverse']
-            return filter_data(_filter, self._data, inverse)
+            except KeyError:
+                inverse =  False
+            return filter_data(_filter, self._data, inverse=inverse)
 
     @deco.check_datatype(many=False)
     @deco.not_closed
@@ -42,27 +55,28 @@ class Connection:
         if _filter == {}:
             return self._data[0]
         else:
-            with contextlib.suppress(KeyError):
+            try:
                 inverse = kwargs['inverse']
-
+            except KeyError:
+                inverse = False
             results = filter_data(_filter, self._data, inverse=inverse)
             return results[0]
     
     @deco.check_datatype(many=False)
     @deco.not_closed
-    def insert_one(self, data: dict) -> str:
+    def insert_one(self, data: dict={}) -> str:
         if data == {}:
-            raise jsondb.exceptions.EmptyInsertError
+            raise jsondb.exceptions.EmptyInsertError("Cannot insert empty document.")
 
         self._data.append(data)
         return "Query OK; 1 document inserted"
 
     @deco.check_datatype(many=True)
     @deco.not_closed
-    def insert_many(self, data: list) -> str:
+    def insert_many(self, data: list=[]) -> str:
         if data in [[], {}, tuple()]:
-            raise jsondb.exceptions.EmptyInsertError
-        
+            raise jsondb.exceptions.EmptyInsertError("Cannot insert empty document.")
+
         self._data.extend(data)
         return f"Query OK; {len(data)} documents inserted"
 
@@ -72,24 +86,50 @@ class Connection:
         """The _update dict completely replaces the _filter document in the file."""
         match = self.find_one(_filter)
 
-        for i in self._data:
-            if i == match:
-                i = _update
-                break
-        
-        return "Query OK; 1 row updated."
-
+        for i, j in enumerate(self._data):
+            if j == match:
+                self._data[i] = _update
+                return "Query OK; 1 row updated."
+        else:
+            return "Query OK; 0 rows updated."
+    
     @deco.check_datatype(many=True)
     @deco.not_closed
     def update_many(self, _filter: dict, _update: dict, **kwargs) -> str:
         match = filter_data(_filter, self._data)
         updated_count = 0
-        for i in self._data:
-            if i in match:
-                i = _update
+        for i, j in enumerate(self._data):
+            if j in match:
+                self._data[i] = _update
                 updated_count += 1
         return f"Query OK; updated count: {updated_count}"
 
+    @deco.check_datatype(many=False)
+    @deco.not_closed
+    def delete_one(self, _filter: dict, **kwargs) -> QueryResult:
+        match = filter_data(_filter, self._data)
+        self._data.remove(match)
+    return QueryResult()
+
+    @deco.check_datatype(many=False)
+    @deco.not_closed
+    def delete_many(self, _filter: dict={}, **kwargs) -> QueryResult:
+        deleted_count = 0
+        if _filter == {}:
+            deleted_count = len(self._data)
+            self._data = []
+            return QueryResult()    # return deleted count
+        
+        match = filter_data(_filter, self._data)
+        matched_count = len(match)
+
+        for i, j in enumerate(self._data):
+            if deleted_count <= matched_count:
+                if j in match:
+                    self._data.pop(i)
+                    deleted_count += 1
+            else:
+                return QueryResult()  # return deleted count
 
     @deco.not_closed 
     def rollback(self) -> None:
@@ -98,7 +138,7 @@ class Connection:
             self._data = json.load(f)
 
     @deco.not_closed
-    def flush(self) -> None:
+    def commit(self) -> None:
         with open(self.__fp, "w") as f:
             json.dump(self._data, f)
     
@@ -106,12 +146,7 @@ class Connection:
     def close(self) -> None:
         self._closed = True
         with open(self.__fp, "w") as f:
-            json.dump(self._data, f)
-    
-    def __check_data_integrity(self) -> bool:
-        # Will I ever use this.
-        with open(self.__fp) as f:
-            return self._data == json.load(f)
+            json.dump(self._data, f, indent=self.__indent)
 
-if __name__ == "__main__":
+class QueryResult:
     pass
