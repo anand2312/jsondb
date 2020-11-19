@@ -6,6 +6,19 @@ import jsondb.exceptions
 import jsondb.utils.decorators as deco
 from jsondb.utils.filter import _filter as filter_data
 
+class QueryResult:
+    """Represents a QueryResult object that will be returned on find, update, insert, delete operations."""
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+
+    def __iter__(self):
+        for i in self.args:
+            yield i
+    
+    def __repr__(self) -> str:
+        return f"<QueryResult; {', '.join([f'{key}: {value}' for key, value in self.kwargs.items()])}>"
+
 class Connection:
     def __init__(self, filepath: str, **kwargs):
         """Makes a Connection object. `.json` file extension is not needed to be added, the program does it for you."""
@@ -39,15 +52,17 @@ class Connection:
 
     @deco.check_datatype(many=False)
     @deco.not_closed
-    def find(self, _filter: dict={}, **kwargs) -> tuple:
+    def find(self, _filter: dict={}, **kwargs) -> QueryResult:
         if _filter == {}:
-            return tuple(self._data)
+            matched_count = len(self._data)
+            return QueryResult(*self._data, matched_count=matched_count)
         else:
             try:
                 inverse = kwargs['inverse']
             except KeyError:
                 inverse =  False
-            return filter_data(_filter, self._data, inverse=inverse)
+            matched_count = len(self._data)
+            return QueryResult(*filter_data(_filter, self._data, inverse=inverse), matched_count=matched_count)
 
     @deco.check_datatype(many=False)
     @deco.not_closed
@@ -64,52 +79,62 @@ class Connection:
     
     @deco.check_datatype(many=False)
     @deco.not_closed
-    def insert_one(self, data: dict={}) -> str:
+    def insert_one(self, data: dict={}) -> QueryResult:
         if data == {}:
             raise jsondb.exceptions.EmptyInsertError("Cannot insert empty document.")
 
         self._data.append(data)
-        return "Query OK; 1 document inserted"
+        return QueryResult(inserted_count=1)
 
     @deco.check_datatype(many=True)
     @deco.not_closed
-    def insert_many(self, data: list=[]) -> str:
+    def insert_many(self, data: list=[]) -> QueryResult:
         if data in [[], {}, tuple()]:
             raise jsondb.exceptions.EmptyInsertError("Cannot insert empty document.")
 
         self._data.extend(data)
-        return f"Query OK; {len(data)} documents inserted"
+        return QueryResult(inserted_count=len(data))
 
     @deco.check_datatype(many=False)
     @deco.not_closed
-    def update_one(self, _filter: dict, _update: dict, **kwargs) -> str:
+    def update_one(self, _filter: dict, _update: dict, **kwargs) -> QueryResult:
         """The _update dict completely replaces the _filter document in the file."""
         match = self.find_one(_filter)
 
         for i, j in enumerate(self._data):
             if j == match:
                 self._data[i] = _update
-                return "Query OK; 1 row updated."
+                return QueryResult(matched_count=1, updated_count=1)
         else:
-            return "Query OK; 0 rows updated."
+            return QueryResult(matched_count=0, updated_count=0)
     
     @deco.check_datatype(many=True)
     @deco.not_closed
     def update_many(self, _filter: dict, _update: dict, **kwargs) -> str:
         match = filter_data(_filter, self._data)
+        matched_count = len(match)
         updated_count = 0
+
+        if matched_count == 0:
+            return QueryResult(matched_count=0)
+
         for i, j in enumerate(self._data):
-            if j in match:
-                self._data[i] = _update
-                updated_count += 1
-        return f"Query OK; updated count: {updated_count}"
+            if updated_count < matched_count:
+                if j in match:
+                    self._data[i] = _update
+                    updated_count += 1
+            else:
+                return QueryResult(matched_count=matched_count, updated_count=updated_count)
 
     @deco.check_datatype(many=False)
     @deco.not_closed
     def delete_one(self, _filter: dict, **kwargs) -> QueryResult:
         match = filter_data(_filter, self._data)
-        self._data.remove(match)
-    return QueryResult()
+        if match != ():
+            self._data.remove(match[0])
+            return QueryResult(deleted_count=1)
+        else:
+            return QueryResult(deleted_count=0)
 
     @deco.check_datatype(many=False)
     @deco.not_closed
@@ -118,10 +143,12 @@ class Connection:
         if _filter == {}:
             deleted_count = len(self._data)
             self._data = []
-            return QueryResult()    # return deleted count
+            return QueryResult(deleted_count=deleted_count)    
         
         match = filter_data(_filter, self._data)
         matched_count = len(match)
+        if matched_count == 0:
+            return QueryResult(matched_count=0)
 
         for i, j in enumerate(self._data):
             if deleted_count <= matched_count:
@@ -129,7 +156,7 @@ class Connection:
                     self._data.pop(i)
                     deleted_count += 1
             else:
-                return QueryResult()  # return deleted count
+                return QueryResult(deleted_count=deleted_count) 
 
     @deco.not_closed 
     def rollback(self) -> None:
@@ -147,6 +174,3 @@ class Connection:
         self._closed = True
         with open(self.__fp, "w") as f:
             json.dump(self._data, f, indent=self.__indent)
-
-class QueryResult:
-    pass
