@@ -40,9 +40,11 @@ class Connection:
             elif isinstance(e, json.decoder.JSONDecodeError):
                 self._data = []
 
-        with contextlib.suppress(KeyError):
+        try:
             # parsing through kwargs
-            self.__indent = kwargs['indent'] 
+            self.__indent = kwargs['indent']
+        except KeyError:
+            self.__indent = None 
 
     def __enter__(self):
         return self
@@ -61,8 +63,9 @@ class Connection:
                 inverse = kwargs['inverse']
             except KeyError:
                 inverse =  False
-            matched_count = len(self._data)
-            return QueryResult(*filter_data(_filter, self._data, inverse=inverse), matched_count=matched_count)
+            matched = filter_data(_filter, self._data, inverse=inverse)
+            matched_count = len(matched)
+            return QueryResult(*matched, matched_count=matched_count)
 
     @deco.check_datatype(many=False)
     @deco.not_closed

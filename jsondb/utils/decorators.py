@@ -1,5 +1,6 @@
 """Helper decorators."""
 import typing
+import time
 import jsondb.exceptions as exceptions
 
 def check_datatype(many: bool):
@@ -31,5 +32,15 @@ def not_closed(func):
             raise exceptions.ClosedConnectionError("Database connection is already closed.")
         else:
             return func(self, *args, **kwargs)
+    return wrapper
+
+def timeit(func):
+    """Testing helper decorator, prints time taken for an operation."""
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        res = func(*args, **kwargs)
+        end = time.time()
+        print(f"Time taken: {end-start}\n{res}")
+        return res
     return wrapper
         

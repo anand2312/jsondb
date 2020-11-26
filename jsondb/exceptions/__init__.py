@@ -5,3 +5,6 @@ class EmptyInsertError(Exception):
 
 class ClosedConnectionError(Exception):
     pass
+
+class UnsupportedOperatorError(TypeError):
+    pass
