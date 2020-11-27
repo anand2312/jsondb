@@ -1,4 +1,6 @@
 ### JSONdb - Using a JSON file like it is a database.
 
-Please don't. JSON files aren't meant to be used as databases.
+## Installation
+`pip` install with
+```pip install https://github.com/anand2312/jsondb/archive/v1.0.0.tar.gz```
 
